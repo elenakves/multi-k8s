@@ -7,14 +7,9 @@ env:
     - CLOUDSDK_CORE_DISABLE_PROMPTS=1
 before_install:
   - openssl aes-256-cbc -K $encrypted_9f3b5599b056_key -iv $encrypted_9f3b5599b056_iv -in service-account.json.enc -out service-account.json -d
-  # install google cloud sdk
   - curl https://sdk.cloud.google.com | bash > /dev/null;
   - source $HOME/google-cloud-sdk/path.bash.inc
-  # install & update kubectl
   - gcloud components update kubectl
-  # authorize google sdk to access our account
-  # we install Travis cli lically, encript service-account.json (credentials, created on Google cloud)
-  # and store it in Travis
   - gcloud auth activate-service-account --key-file service-account.json
   - gcloud config set project multi-k8s-287213
   - gcloud config set compute/zone europe-west1-b
@@ -25,11 +20,4 @@ before_install:
   - docker build -t elenakves/react-test -f ./client/Dockerfile.dev ./client
 
 script:
-  # run test on the test image
   - docker run elenakves/react-test npm test -- --coverage
-
-#deploy:
-#  provider: script
-#  script: bash ./deploy.sh
-#  on:
-#    branch: master
