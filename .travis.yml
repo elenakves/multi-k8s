@@ -1,25 +1,75 @@
 sudo: required
 services:
-- docker
+  - docker
 env:
   global:
   - SHA=$(git rev-parse HEAD)
   - CLOUDSDK_CORE_DISABLE_PROMPTS=1
 before_install:
-- openssl aes-256-cbc -K $encrypted_9f3b5599b056_key -iv $encrypted_9f3b5599b056_iv -in service-account.json.enc -out service-account.json -d
-- curl https://sdk.cloud.google.com | bash > /dev/null
-- source $HOME/google-cloud-sdk/path.bash.inc
-- gcloud components update kubectl
-- gcloud auth activate-service-account --key-file service-account.json
-- gcloud config set project multi-k8s-287213
-- gcloud config set compute/zone europe-west1-b
-- gcloud container clusters get-credentials multi-cluster
-- echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-- docker build -t elenakves/react-test -f ./client/Dockerfile.dev ./client
+  # install & configure google cloud sdk
+  - curl https://sdk.cloud.google.com | bash > /dev/null
+  - source $HOME/google-cloud-sdk/path.bash.inc
+  # install & update kubectl
+  - gcloud components update kubectl
+  # this will decrypt the GC credentials file, encripted in **
+  - openssl aes-256-cbc -K $encrypted_9f3b5599b056_key -iv $encrypted_9f3b5599b056_iv -in service-account.json.enc -out service-account.json -d
+  # we install Travis cli, encript service-account.json (credentials, created on Google cloud)
+  # and store it in Travis -> ALL DONE IN **. 
+  # authorize google sdk to access our account
+  - gcloud auth activate-service-account --key-file service-account.json
+  # Give GC project name, zone, cluster name
+  - gcloud config set project multi-k8s-287213
+  - gcloud config set compute/zone europe-west1-b
+  - gcloud container clusters get-credentials multi-cluster
+  # login to docker, build test image
+  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  - docker build -t elenakves/react-test -f ./client/Dockerfile.dev ./client
 script:
-- docker run elenakves/react-test npm test -- --coverage
+  # run test 
+  - docker run elenakves/react-test npm test -- --coverage
 deploy:
+  # if successful, run deploy script
   provider: script
   script: bash ./deploy.sh
   on:
     branch: master
+
+# ** 2
+#these steps (run on local) to encrypt GC credentials file and create vars in Travis
+#docker run -it -v $(pwd):/app ruby:2.4 sh
+#cd app
+#gem install travis --no-rdoc --no-ri
+#gem install travis
+#travis login
+#// copy service-account.json into "volumed" dir, so we can use it in the container
+#travis encrypt-file service-account.json -r elenakves/multi-k8s --add
+#
+#!!! IN THE DOCKER I NEED TO:
+#ROOT
+#MODIFY /root//.travis/config.yml -> modify endpoint: https://api.travis-ci.com (it was ...org) -> 
+#DO THE ABOVE AS ROOT! -> THEN THE -IV AND -KEY VARIABLES WILL BE ADDED AUTOMATICALLY TO TRAVIS
+
+##3
+##Create secrets on GC for PGPASSWORD, create it from shell on GC with:
+#gcloud config set project multi-k8s-287213
+#gcloud config set compute/zone europe-west1-b
+#gcloud container clusters get-credentials multi-cluster
+## test connection - kubectl get pods
+# create secret in GC: pgpassword set as name in k8s/server-deployment.yaml
+# kubectl create secret generic pgpassword --from-literal PGPASSWORD=mypgpassw1
+
+# 4
+# install HELM + TILLER (Ingress service)
+# https://helm.sh/docs/intro/install/
+#$ curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3
+#$ chmod 700 get_helm.sh
+#$ ./get_helm.sh
+
+##5
+##create RBAC 
+##Create new service account called tiller in the kube-system namespace
+# kubectl create serviceaccount --namespace kube-system tiller
+## Create new clusterrolebinding with the role cluster-admin and assign it to service account tiller
+# kubectl create clusterrolebinding tiller-cluster-rule --clusterrole=cluster-admin --serviceaccount=kube-system:tiller
+
+# after running this we can run : helm init --service-account tiller --upgrade
